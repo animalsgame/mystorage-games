@@ -1,11 +1,8 @@
 <?php
 function api_install($my){
 $table = $my->cfg['dbTable'];
-try{
 $stmt = $my->query('SELECT 1 FROM '.$table.' LIMIT 1');
-if($stmt->columnCount() > 0)return 1;
-}catch(PDOException $e){
-}
+if($stmt && $stmt->columnCount() > 0)return 1;
 
 $s = "CREATE TABLE `".$table."` (
 `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -32,13 +29,10 @@ PRIMARY KEY (`id`),
 KEY `id` (`id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8;";
 
-try{
 $my->query($s);
 $stmt = $my->query('SELECT 1 FROM '.$table.' LIMIT 1');
+if($my->dberror)return 0;
 if($stmt->columnCount() > 0)return 1;
-}catch(PDOException $e){
-//die('error: ' . $e->getMessage());
-}
 return 0;
 }
 
@@ -49,6 +43,7 @@ $items = array();
 $arr = ($data && isset($data['code']) && is_array($data['code'])) ? $data['code'] : null;
 if($arr){
 $nums = count($arr);
+
 if($nums > $limit)return $my->error('api', array('message' => 'execute limit '.$limit));
 
 for($i = 0; $i < $nums; $i++){
@@ -56,6 +51,15 @@ $item = $arr[$i];
 $m = ($item && isset($item['method'])) ? $item['method'] : '';
 $res = null;
 if($m && isset($my->methodsList[$m])){
+
+if($m == 'execute'){
+// если в execute вложен ещё execute, то можно обойти лимит по вызовам, и вкладывать execute в execute в котором ещё может быть по 60 вызовов различных методов, в которых ещё execute могут находиться, поэтому разрешаем только один вложенный вызов execute (из-за клиентской части, чтобы не переделывать её)
+if(isset($my->cfg['firstExecute'])){
+$items[] = $my->error('api', array('message' => 'method "'.$m.'" not allowed'));
+continue;
+}
+$my->cfg['firstExecute'] = 1;
+}
 
 if(strpos($m, 'admin.') === 0){
 if(!$my->isAdmin()){
@@ -75,6 +79,7 @@ $res = $my->error('api', array('message' => 'method "'.$m.'" not found'));
 $items[] = $res;
 }
 }
+
 return $items;
 }
 
@@ -84,11 +89,9 @@ $user = $my->user;
 $table = $my->cfg['dbTable'].'_migrate';
 $limit = $my->cfg['executeLimit'];
 $args = array($user['socialid'], $user['userid'], $user['appid']);
-try{
 $stmt = $my->query('SELECT id FROM '.$table.' WHERE social=? AND userid=? AND appid=?', $args);
+if($my->dberror)return 1;
 if($row = $stmt->fetch())return 0;
-}catch(PDOException $e){
-}
 return 1;
 //return array('executeLimit' => $limit);
 }
@@ -153,8 +156,8 @@ $namesCount = count($namesArr);
 // сначала ищем в бд переменные, те которые нашлись добавляем в новый массив, и убираем через unset из объекта
 if($namesCount > 0){
 array_push($namesArr, $user['userid']);
-try{
 $stmt = $my->query('SELECT id, name, social, appid FROM '.$table.' WHERE name IN ('.implode(',', array_fill(0, $namesCount, '?')).') AND userid=?', $namesArr);
+if($my->dberror)return $my->error('db', array('message' => 'db query error'));
 while($row = $stmt->fetch()){
 if($row['appid'] == $user['appid'] && $row['social'] == $user['socialid']){
 $nm = $row['name'];
@@ -162,9 +165,6 @@ $itemsDB[] = $row;
 $namesCount--;
 unset($itemsObj[$nm]);
 }
-}
-}catch(PDOException $e){
-return $my->error('db', array('message' => 'db query error'));
 }
 
 }
@@ -195,15 +195,12 @@ array_push($queryArr, $item['key'], $val, $user['socialid'], $user['userid'], $u
 // важно проверить что действительно есть переменные которые надо записать, иначе могут быть чудеса
 if($nums2 > 0){
 $s = implode(',', array_fill(0, $nums2, '('.implode(',', array_fill(0, count($tableFields), '?')).')'));
-try{
 $stmt = $my->query('INSERT INTO '.$table.' ('.implode(',', $tableFields).') VALUES '.$s, $queryArr);
+if($my->dberror)return $my->error('db', array('message' => 'db insert error'));
 if($stmt->rowCount() > 0){
 $status = 1;
 // если запись выполнена, добавляем в массив число 1, столько раз - сколько у нас записано переменных (вместо всяких циклов, array_push тоже медленным будет)
 $arr = array_merge($arr, array_fill(0, $nums2, $status));
-}
-}catch(PDOException $e){
-return $my->error('db', array('message' => 'db insert error'));
 }
 }
 
@@ -219,11 +216,8 @@ $item = $itemsDB[$i];
 $nm = $item['name'];
 $itemOrig = $itemsOrigObj[$nm];
 $status = 0;
-try{
 $stmt = $my->query('UPDATE '.$table.' SET value=?, update_time=? WHERE id=?', array($itemOrig['value'], $ts, $item['id']));
-$status = 1;
-}catch(PDOException $e){
-}
+if(!$my->dberror)$status = 1;
 array_push($arr, $status);
 }
 }
@@ -233,13 +227,13 @@ if($isMigrate){
 $status = 0;
 $table = $my->cfg['dbTable'].'_migrate';
 $args = array($user['socialid'], $user['userid'], $user['appid']);
-try{
+
 $stmt = $my->query('SELECT id FROM '.$table.' WHERE social=? AND userid=? AND appid=?', $args);
+if(!$my->dberror){
 if(!($row = $stmt->fetch())){
 $stmt = $my->query('INSERT INTO '.$table.' (social, userid, appid, create_time) VALUES (?,?,?,?)', array_merge($args, array(time())));
-if($stmt->rowCount() > 0)$status = 1;
+if(!$my->dberror && $stmt->rowCount() > 0)$status = 1;
 }
-}catch(PDOException $e){
 }
 array_push($arr, $status);
 }
@@ -276,8 +270,10 @@ $keys = array($name);
 
 if($keys && count($keys) > 0){
 $s = 'userid=? AND name IN('.implode(',', array_fill(0, count($keys), '?')).')';
-try{
+
 $stmt = $my->query('SELECT * FROM '.$table.' WHERE '.$s, array_merge(array($authData['userid']), $keys));
+if($my->dberror)return $items;
+
 while($row = $stmt->fetch()){
 if($row['social'] == $authData['socialid'] && $row['appid'] == $authData['appid']){
 $obj[$row['name']] = $row['value'];
@@ -290,8 +286,6 @@ $value = (isset($obj[$key]) && !empty($obj[$key])) ? $obj[$key] : '';
 $items[] = array('key' => $key, 'value' => $value);
 }
 
-}catch(PDOException $e){
-}
 }
 
 return $items;
@@ -310,12 +304,11 @@ if($nums < 0)$nums = 0;
 if($nums > $limit)$nums = $limit;
 $s = 'social=? AND userid=? AND appid=? AND value!=? LIMIT '.$offset;
 if($nums > 0)$s .= ','.$nums;
-try{
 $stmt = $my->query('SELECT id, name FROM '.$table.' WHERE '.$s, array($authData['socialid'], $authData['userid'], $authData['appid'], ''));
+if(!$my->dberror){
 while($row = $stmt->fetch()){
 $items[] = $row['name'];
 }
-}catch(PDOException $e){
 }
 return $items;
 }
@@ -324,12 +317,9 @@ return $items;
 function api_storage_clear($my){
 $user = $my->user;
 $table = $my->cfg['dbTable'];
-try{
 $stmt = $my->query('DELETE FROM '.$table.' WHERE social=? AND userid=? AND appid=?', array($user['socialid'], $user['userid'], $user['appid']));
+if($my->dberror)return 0;
 return 1;
-}catch(PDOException $e){
-}
-return 0;
 }
 
 function api_admin_storage_getUsers($my){
@@ -338,16 +328,14 @@ $arr = array();
 $obj = array();
 $table = $my->cfg['dbTable'];
 $authData = $my->user;
-try{
 $stmt = $my->query('SELECT social, userid FROM '.$table.' WHERE social=? AND appid=?', array($authData['socialid'], $authData['appid']));
+if($my->dberror)return $arr;
 while($row = $stmt->fetch()){
 $u = $row['userid'];
 if(!isset($obj[$u])){
 $obj[$u] = 1;
 $arr[] = $u;
 }
-}
-}catch(PDOException $e){
 }
 return $arr;
 }
@@ -407,9 +395,14 @@ return 0;
 public function query($s, $arr = null){
 if($this->sql){
 if(!$arr)$arr = array();
+$this->dberror = null;
+try{
 $stmt = $this->sql->prepare($s);
 $stmt->execute($arr);
 return $stmt;
+}catch(Exception $e){
+$this->dberror = $e;
+}
 }
 return null;
 }
@@ -462,8 +455,9 @@ $table = $this->cfg['dbTable'];
 $limit = $this->cfg['maxCreateVars'];
 $args = array($user['socialid'], $user['userid'], $user['appid']);
 $s = 'name=? AND social=? AND userid=? AND appid=?';
-try{
+
 $stmt = $this->query('SELECT id FROM '.$table.' WHERE '.$s, array_merge(array($name), $args));
+if($this->dberror)return 0;
 $ts = time();
 if($row = $stmt->fetch()){
 $stmt = $this->query('UPDATE '.$table.' SET value=?, update_time=? WHERE id=?', array($value, $ts, $row['id']));
@@ -471,16 +465,14 @@ $stmt = $this->query('UPDATE '.$table.' SET value=?, update_time=? WHERE id=?', 
 return 1;
 }
 $stmt = $this->query('SELECT COUNT(*) FROM '.$table.' WHERE social=? AND userid=? AND appid=?', $args);
+if($this->dberror)return 0;
 $allCount = intval($stmt->fetchColumn());
 if($allCount >= $limit)return 2;
 if(!$value)return 1;
 
 $stmt = $this->query('INSERT INTO '.$table.' (name, value, social, userid, appid, create_time, update_time) VALUES (?,?,?,?,?,?,?)', array_merge(array($name, $value), $args, array($ts, $ts)));
+if($this->dberror)return 0;
 if($stmt->rowCount() > 0)return 1;
-}catch(PDOException $e){
-//die('error: ' . $e->getMessage());
-}
-
 return 0;
 }
 
