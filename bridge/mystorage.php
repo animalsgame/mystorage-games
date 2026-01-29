@@ -30,6 +30,7 @@ KEY `id` (`id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8;";
 
 $my->query($s);
+if($my->dberror)return 0;
 $stmt = $my->query('SELECT 1 FROM '.$table.' LIMIT 1');
 if($my->dberror)return 0;
 if($stmt->columnCount() > 0)return 1;
