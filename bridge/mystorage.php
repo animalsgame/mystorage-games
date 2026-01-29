@@ -249,6 +249,7 @@ $obj = array();
 $authData = $my->user;
 $data = $my->data;
 $table = $my->cfg['dbTable'];
+$limit = $my->cfg['maxCreateVars'];
 $maxVarNameSize = $my->cfg['maxVarNameSize'];
 
 $keys = null;
@@ -269,8 +270,10 @@ if(!$my->isValidKey($name) || strlen($name) > $maxVarNameSize)return $my->error(
 $keys = array($name);
 }
 
-if($keys && count($keys) > 0){
-$s = 'userid=? AND name IN('.implode(',', array_fill(0, count($keys), '?')).')';
+$nums = ($keys) ? count($keys) : 0;
+if($nums > $limit)return $my->error('api', array('message' => 'limit '.$limit.' keys'));
+if($nums > 0){
+$s = 'userid=? AND name IN('.implode(',', array_fill(0, $nums, '?')).')';
 
 $stmt = $my->query('SELECT * FROM '.$table.' WHERE '.$s, array_merge(array($authData['userid']), $keys));
 if($my->dberror)return $items;
