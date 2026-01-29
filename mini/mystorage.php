@@ -185,6 +185,7 @@ return $arr;
 class MyStorage{
 
 private $sql;
+private $callbacks;
 
 public $appsList;
 public $methodsList;
@@ -210,6 +211,7 @@ $this->cfg = $cfg;
 $this->appsList = array();
 $this->methodsList = array();
 $this->adminsList = array();
+$this->callbacks = array();
 $this->socialsLocalId = array('vk' => 1, 'ok' => 2);
 
 $this->addMethod('install', 'api_install');
@@ -231,6 +233,10 @@ return 1;
 }catch(Exception $e){
 }
 return 0;
+}
+
+public function call($cb, ...$args){
+if($cb)$this->callbacks[] = array($cb, $args);
 }
 
 public function query($s, $arr = null){
@@ -317,7 +323,10 @@ echo json_encode($o);
 }
 
 public function send($o){
-echo $this->sendJSON(array('response' => $o));
+$cbNums = count($this->callbacks);
+$result = array('response' => $o);
+if($cbNums > 0)$result['()'] = $this->callbacks;
+echo $this->sendJSON($result);
 }
 
 public function error($type, $o){
