@@ -386,6 +386,14 @@ exit;
 }
 
 if($method && isset($this->methodsList[$method])){
+
+if(strpos($method, 'admin.') === 0){
+if(!$this->isAdmin()){
+$this->sendJSON($this->error('api', array('message' => 'access denied')));
+exit;
+}
+}
+
 $cb = $this->methodsList[$method];
 $res = $cb($this);
 if($res && is_array($res) && isset($res['error'])){
